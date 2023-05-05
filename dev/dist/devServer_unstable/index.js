@@ -23,7 +23,12 @@ require('path');
 require('module');
 require('esbuild');
 require('esbuild-plugin-polyfill-node');
-require('fs');
+////////////////////////////////////////////////////////////////////////////////
+// SN EDIT
+// require('fs');
+var fs = require('fs');
+// SN EDIT END
+////////////////////////////////////////////////////////////////////////////////
 require('url');
 require('postcss-load-config');
 require('postcss');
@@ -51,6 +56,11 @@ var env = require('./env.js');
 var socket = require('./socket.js');
 var hmr = require('./hmr.js');
 var warnOnce = require('../warnOnce.js');
+////////////////////////////////////////////////////////////////////////////////
+// SN EDIT
+var https = require('https');
+// SN EDIT END
+////////////////////////////////////////////////////////////////////////////////
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -105,14 +115,60 @@ let detectBin = async () => {
 };
 let serve = async (initialConfig, options) => {
   await env.loadEnv(initialConfig.rootDirectory);
-  let websocket = socket.serve({
-    port: options.websocketPort
-  });
   let httpOrigin = {
     scheme: options.httpScheme,
     host: options.httpHost,
     port: options.httpPort
   };
+  //////////////////////////////////////////////////////////////////////////////
+  // SN EDIT
+  // - Moved express server up here because
+  // -- I need to create an https server that uses the dev express server
+  // -- then pass that https server to ./socket instead of the port option.
+  // let websocket = socket.serve({
+  //   port: options.websocketPort
+  // });
+
+  let httpServer = express__default["default"]()
+  // statically serve built assets
+  .use((_, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    next();
+  }).use("/build", express__default["default"].static(initialConfig.assetsBuildDirectory, {
+    immutable: true,
+    maxAge: "1y"
+  }))
+
+  // handle `broadcastDevReady` messages
+  .use(express__default["default"].json()).post("/ping", (req, res) => {
+    let {
+      buildHash
+    } = req.body;
+    if (typeof buildHash !== "string") {
+      console.warn(`Unrecognized payload: ${req.body}`);
+      res.sendStatus(400);
+    }
+    if (buildHash === state.latestBuildHash) {
+      var _state$buildHashChann3;
+      (_state$buildHashChann3 = state.buildHashChannel) === null || _state$buildHashChann3 === void 0 ? void 0 : _state$buildHashChann3.ok();
+    }
+    res.sendStatus(200);
+  });
+
+  const CERT_DIR = `${process.cwd()}/cert`;
+  console.log(`CERT_DIR: `, CERT_DIR);
+  let httpsServer = https.createServer({
+    // These could be remix.config.js#undstable_dev values: keyFilePath, certFilePath
+    key: fs.readFileSync(`${CERT_DIR}/key.pem`),
+    cert: fs.readFileSync(`${CERT_DIR}/cert.pem`),
+  }, httpServer)
+  httpsServer.listen(httpOrigin.port, () => {
+    console.log("Remix dev server ready");
+  });
+
+  let websocket = socket.serve({ server: httpsServer });
+  // END SN EDIT
+  //////////////////////////////////////////////////////////////////////////////
   let state = {};
   let bin = await detectBin();
   let startAppServer = command => {
@@ -206,33 +262,37 @@ let serve = async (initialConfig, options) => {
     onFileChanged: file => websocket.log(`File changed: ${relativePath(file)}`),
     onFileDeleted: file => websocket.log(`File deleted: ${relativePath(file)}`)
   });
-  let httpServer = express__default["default"]()
-  // statically serve built assets
-  .use((_, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    next();
-  }).use("/build", express__default["default"].static(initialConfig.assetsBuildDirectory, {
-    immutable: true,
-    maxAge: "1y"
-  }))
-
-  // handle `broadcastDevReady` messages
-  .use(express__default["default"].json()).post("/ping", (req, res) => {
-    let {
-      buildHash
-    } = req.body;
-    if (typeof buildHash !== "string") {
-      console.warn(`Unrecognized payload: ${req.body}`);
-      res.sendStatus(400);
-    }
-    if (buildHash === state.latestBuildHash) {
-      var _state$buildHashChann3;
-      (_state$buildHashChann3 = state.buildHashChannel) === null || _state$buildHashChann3 === void 0 ? void 0 : _state$buildHashChann3.ok();
-    }
-    res.sendStatus(200);
-  }).listen(httpOrigin.port, () => {
-    console.log("Remix dev server ready");
-  });
+  //////////////////////////////////////////////////////////////////////////////
+  // SN EDIT - moved up above
+  // let httpServer = express__default["default"]()
+  // // statically serve built assets
+  // .use((_, res, next) => {
+  //   res.header("Access-Control-Allow-Origin", "*");
+  //   next();
+  // }).use("/build", express__default["default"].static(initialConfig.assetsBuildDirectory, {
+  //   immutable: true,
+  //   maxAge: "1y"
+  // }))
+  //
+  // // handle `broadcastDevReady` messages
+  // .use(express__default["default"].json()).post("/ping", (req, res) => {
+  //   let {
+  //     buildHash
+  //   } = req.body;
+  //   if (typeof buildHash !== "string") {
+  //     console.warn(`Unrecognized payload: ${req.body}`);
+  //     res.sendStatus(400);
+  //   }
+  //   if (buildHash === state.latestBuildHash) {
+  //     var _state$buildHashChann3;
+  //     (_state$buildHashChann3 = state.buildHashChannel) === null || _state$buildHashChann3 === void 0 ? void 0 : _state$buildHashChann3.ok();
+  //   }
+  //   res.sendStatus(200);
+  // }).listen(httpOrigin.port, () => {
+  //   console.log("Remix dev server ready");
+  // });
+  // SN EDIT END
+  //////////////////////////////////////////////////////////////////////////////
   return new Promise(() => {}).finally(async () => {
     await kill(state.appServer);
     websocket.close();
