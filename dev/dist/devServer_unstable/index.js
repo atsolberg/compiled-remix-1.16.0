@@ -178,7 +178,8 @@ let serve = async (initialConfig, options) => {
       env: {
         NODE_ENV: "development",
         PATH: `${bin}:${process.env.PATH}`,
-        REMIX_DEV_HTTP_ORIGIN: stringifyOrigin(httpOrigin)
+        REMIX_DEV_HTTP_ORIGIN: stringifyOrigin(httpOrigin),
+        FORCE_COLOR: '1'
       }
     });
     if (newAppServer.stdin) process.stdin.pipe(newAppServer.stdin, {
